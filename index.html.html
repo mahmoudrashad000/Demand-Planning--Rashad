@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demand Planner — Meat Factory</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#fff;font-family:'Segoe UI',Arial,sans-serif}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo } = React;
+
+const CHANNELS = ["Modern Trade","Website","QCommerce","Joud","Horeca","Special Client","Samples","Gift","Company Employee"];
+const PRODUCTS = [
+  {id:"P001",name:"Filet Mignon",name_ar:"ستيك فلتو",weight:500},
+  {id:"P002",name:"Boneless Rib-eye",name_ar:"ريب آى بدون عظم",weight:350},
+  {id:"P003",name:"Eye Round",name_ar:"عرق تربيانكو",weight:2500},
+  {id:"P004",name:"Beef Escalope",name_ar:"اسكالوب",weight:500},
+  {id:"P005",name:"Beef Entrecôte",name_ar:"انتركوت",weight:500},
+  {id:"P006",name:"Beef Cubes",name_ar:"كباب حلة",weight:500},
+  {id:"P007",name:"Beef Chuck Cubes",name_ar:"كباب سن",weight:500},
+  {id:"P008",name:"Beef Shank",name_ar:"موزة",weight:500},
+  {id:"P009",name:"Beef Piccata",name_ar:"بيكاتا",weight:500},
+  {id:"P010",name:"Beef Ossobuco",name_ar:"أوسوبوكو",weight:500},
+  {id:"P011",name:"Beef Stroganoff",name_ar:"بيف ستروجانوف",weight:500},
+  {id:"P012",name:"Beef Shawerma",name_ar:"شاورما لحم",weight:500},
+  {id:"P013",name:"Beef Liver",name_ar:"كبدة صافي",weight:500},
+  {id:"P014",name:"Ground Beef 10%",name_ar:"مفروم 10% دهون",weight:500},
+  {id:"P015",name:"Mixed Liver",name_ar:"مزاليكا",weight:500},
+  {id:"P016",name:"Original Sogok",name_ar:"سجق بلدي",weight:600},
+  {id:"P017",name:"Burger Classic",name_ar:"برجر كلاسيك",weight:340},
+  {id:"P018",name:"Kofta Shawy",name_ar:"كفتة شوي",weight:500},
+  {id:"P019",name:"Meatballs",name_ar:"كفتة داوود باشا",weight:500},
+  {id:"P020",name:"Beef Tenderloin 900g",name_ar:"عرق فلتو 900",weight:900},
+  {id:"P021",name:"Beef Tenderloin 1600g",name_ar:"عرق فلتو 1600",weight:1600},
+  {id:"P022",name:"Brisket 2500g",name_ar:"دوش 2500",weight:2500},
+  {id:"P023",name:"Brisket 3000g",name_ar:"دوش 3000",weight:3000},
+  {id:"P024",name:"Thor's Hammer",name_ar:"موزة كاملة بالعظم",weight:2500},
+  {id:"P025",name:"Sirloin Steak",name_ar:"سيرلوين ستيك",weight:300},
+  {id:"P026",name:"T-Bone Steak",name_ar:"تي بون ستيك",weight:350},
+  {id:"P027",name:"Tomahawk Steak",name_ar:"توماهوك ستيك",weight:1000},
+  {id:"P028",name:"Rib Steak",name_ar:"ريب ستيك",weight:500},
+  {id:"P029",name:"Ground Beef 5%",name_ar:"مفروم 5% دهون",weight:500},
+  {id:"P030",name:"Oxtail",name_ar:"عكاوي",weight:1000},
+  {id:"P031",name:"Ground Beef 20%",name_ar:"مفروم 20% دهون",weight:500},
+  {id:"P032",name:"Marrow Burger",name_ar:"برجر نخاع",weight:340},
+  {id:"P033",name:"Burger Mini",name_ar:"ميني برجر",weight:600},
+  {id:"P034",name:"Kofta Saneyya",name_ar:"كفتة صينية",weight:500},
+  {id:"P035",name:"Marrow Canon",name_ar:"عظم بقري (نخاع)",weight:1},
+];
+const STATUSES = ["New","Sent to Production","Confirmed","Partially Delivered","Delivered"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+const toDate = () => new Date().toISOString().split("T")[0];
+const uid = () => "ORD-" + Date.now().toString(36).toUpperCase().slice(-5);
+const getProd = id => PRODUCTS.find(p => p.id === id) || PRODUCTS[0];
+const curMonth = new Date().getMonth();
+const curYear = new Date().getFullYear();
+
+const statusBg = {"New":"#e8f0fe","Sent to Production":"#fff3cd","Confirmed":"#d4edda","Partially Delivered":"#fde8d8","Delivered":"#d1ecf1"};
+const statusFg = {"New":"#1a56db","Sent to Production":"#856404","Confirmed":"#155724","Partially Delivered":"#7c3e0e","Delivered":"#0c5460"};
+
+const emptyLine = () => ({ product_id: PRODUCTS[0].id, qty_requested: "", qty_available: "", qty_delivered: "" });
+const emptyOrder = () => ({ id: uid(), date: toDate(), channel: CHANNELS[0], status: "New", notes: "", lines: [emptyLine()] });
+
+const exportCSV = (rows, filename) => {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${(r[h]??'').toString().replace(/"/g,'""')}"`).join(","))].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download = filename; a.click();
+};
+
+const BarChart = ({data, color="#1a1a1a", height=120, labelKey="label", valueKey="value"}) => {
+  if(!data.length) return null;
+  const max = Math.max(...data.map(d=>d[valueKey]),1);
+  const bw = Math.max(8, Math.floor(460/data.length)-4);
+  const W = data.length*(bw+4);
+  return (
+    <svg width="100%" height={height+40} viewBox={`0 0 ${W} ${height+40}`} preserveAspectRatio="xMidYMid meet">
+      {data.map((d,i)=>{
+        const bh=Math.max(1,Math.round((d[valueKey]/max)*(height-10)));
+        const x=i*(bw+4);
+        return(<g key={i}>
+          <rect x={x} y={height-bh} width={bw} height={bh} fill={color} rx="2"/>
+          <text x={x+bw/2} y={height+14} textAnchor="middle" fontSize="9" fill="#666">{d[labelKey].length>9?d[labelKey].slice(0,9)+"…":d[labelKey]}</text>
+          <text x={x+bw/2} y={height-bh-4} textAnchor="middle" fontSize="9" fill="#333" fontWeight="600">{d[valueKey]}</text>
+        </g>);
+      })}
+    </svg>
+  );
+};
+
+const MiniBar = ({value, max, color}) => (
+  <div style={{display:"flex",alignItems:"center",gap:7}}>
+    <div style={{flex:1,height:7,background:"#eee",borderRadius:3}}>
+      <div style={{width:`${Math.min(max?Math.round(value/max*100):0,100)}%`,height:"100%",background:color||"#1a1a1a",borderRadius:3}}/>
+    </div>
+    <span style={{fontSize:11,fontWeight:600,minWidth:30}}>{max?Math.round(value/max*100):0}%</span>
+  </div>
+);
+
+const TABS = ["Orders","Production Board","Delivery Tracker","History","Dashboard"];
+
+function App() {
+  const [tab, setTab] = useState(0);
+  const [orders, setOrders] = useState(() => { try { return JSON.parse(localStorage.getItem("dp_orders")||"[]"); } catch{ return []; }});
+  const [form, setForm] = useState(emptyOrder());
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [expandedOrders, setExpandedOrders] = useState({});
+  const [fMonth, setFMonth] = useState(curMonth);
+  const [fYear, setFYear] = useState(curYear);
+  const [fChannel, setFChannel] = useState("All");
+  const [fProduct, setFProduct] = useState("All");
+
+  const saveOrders = o => { setOrders(o); try{ localStorage.setItem("dp_orders", JSON.stringify(o)); }catch{} };
+
+  const setLine = (i,field,val) => setForm(f=>({...f,lines:f.lines.map((l,j)=>j===i?{...l,[field]:val}:l)}));
+  const addLine = () => setForm(f=>({...f,lines:[...f.lines,emptyLine()]}));
+  const removeLine = i => setForm(f=>({...f,lines:f.lines.filter((_,j)=>j!==i)}));
+
+  const saveOrder = () => {
+    const validLines = form.lines.filter(l=>l.qty_requested);
+    if(!validLines.length) return;
+    const order = {...form, lines:validLines};
+    if(editingId){ saveOrders(orders.map(x=>x.id===editingId?order:x)); setEditingId(null); }
+    else saveOrders([...orders,{...order,id:uid()}]);
+    setForm(emptyOrder()); setShowForm(false);
+  };
+
+  const editOrder = o => { setForm({...o,lines:o.lines.map(l=>({...l}))}); setEditingId(o.id); setShowForm(true); setTab(0); };
+  const updateOrderField = (id,field,val) => saveOrders(orders.map(x=>x.id===id?{...x,[field]:val}:x));
+  const updateLineField = (orderId,li,field,val) => saveOrders(orders.map(x=>x.id===orderId?{...x,lines:x.lines.map((l,j)=>j===li?{...l,[field]:val}:l)}:x));
+  const toggleExpand = id => setExpandedOrders(e=>({...e,[id]:!e[id]}));
+
+  const filtered = useMemo(()=>orders.filter(o=>{
+    const d=new Date(o.date);
+    return d.getMonth()===fMonth&&d.getFullYear()===fYear&&(fChannel==="All"||o.channel===fChannel)&&(fProduct==="All"||o.lines.some(l=>l.product_id===fProduct));
+  }),[orders,fMonth,fYear,fChannel,fProduct]);
+
+  const pending = useMemo(()=>orders.filter(o=>o.status!=="Delivered"&&o.lines.some(l=>(Number(l.qty_requested)||0)>(Number(l.qty_delivered)||0))),[orders]);
+  const delivered = useMemo(()=>orders.filter(o=>o.status==="Delivered"),[orders]);
+
+  const flatLines = useMemo(()=>filtered.flatMap(o=>o.lines.map(l=>({...l,channel:o.channel,date:o.date,orderId:o.id}))),[filtered]);
+
+  const prodSummary = useMemo(()=>{
+    const m={};
+    PRODUCTS.forEach(p=>m[p.id]={requested:0,available:0,delivered:0});
+    flatLines.forEach(l=>{m[l.product_id].requested+=Number(l.qty_requested)||0;m[l.product_id].available+=Number(l.qty_available)||0;m[l.product_id].delivered+=Number(l.qty_delivered)||0;});
+    return m;
+  },[flatLines]);
+
+  const forecast = useMemo(()=>{
+    const res={};
+    PRODUCTS.forEach(p=>{
+      const vals=Array(12).fill(0);
+      orders.forEach(o=>o.lines.forEach(l=>{if(l.product_id===p.id&&o.status==="Delivered")vals[new Date(o.date).getMonth()]+=Number(l.qty_delivered)||0;}));
+      const nz=vals.filter(v=>v>0);
+      res[p.id]=nz.length?Math.round(nz.reduce((a,b)=>a+b,0)/nz.length):0;
+    });
+    return res;
+  },[orders]);
+
+  const totReq=flatLines.reduce((a,l)=>a+(Number(l.qty_requested)||0),0);
+  const totDel=flatLines.reduce((a,l)=>a+(Number(l.qty_delivered)||0),0);
+  const totCov=totReq?Math.round(totDel/totReq*100):0;
+
+  const channelData=useMemo(()=>CHANNELS.map(c=>{
+    const lines=flatLines.filter(l=>l.channel===c);
+    return{label:c,value:lines.reduce((a,l)=>a+(Number(l.qty_requested)||0),0),delivered:lines.reduce((a,l)=>a+(Number(l.qty_delivered)||0),0),count:filtered.filter(o=>o.channel===c).length};
+  }).filter(d=>d.value>0),[flatLines,filtered]);
+
+  const topProducts=useMemo(()=>PRODUCTS.map(p=>({label:p.id,name:p.name,value:prodSummary[p.id]?.requested||0,delivered:prodSummary[p.id]?.delivered||0})).filter(d=>d.value>0).sort((a,b)=>b.value-a.value).slice(0,10),[prodSummary]);
+  const monthlyTrend=useMemo(()=>MONTHS.map((m,i)=>{const mo=orders.filter(o=>new Date(o.date).getMonth()===i&&new Date(o.date).getFullYear()===fYear);return{label:m,value:mo.flatMap(o=>o.lines).reduce((a,l)=>a+(Number(l.qty_delivered)||0),0);};}), [orders,fYear]);
+
+  const ordersExport=filtered.flatMap(o=>o.lines.map(l=>{const p=getProd(l.product_id);return{Order_ID:o.id,Date:o.date,Channel:o.channel,Product_ID:p.id,Product:p.name,Product_AR:p.name_ar,Weight_g:p.weight,Qty_Requested:l.qty_requested,Qty_Available:l.qty_available,Qty_Delivered:l.qty_delivered,Status:o.status,Notes:o.notes};}));
+  const prodExport=PRODUCTS.filter(p=>prodSummary[p.id]?.requested>0).map(p=>({Product_ID:p.id,Product:p.name,Weight_g:p.weight,Requested:prodSummary[p.id].requested,Available:prodSummary[p.id].available,Delivered:prodSummary[p.id].delivered,Deficit:prodSummary[p.id].requested-prodSummary[p.id].delivered,Coverage_Pct:prodSummary[p.id].requested?Math.round(prodSummary[p.id].delivered/prodSummary[p.id].requested*100):0}));
+  const histExport=delivered.flatMap(o=>o.lines.map(l=>{const p=getProd(l.product_id);return{Order_ID:o.id,Date:o.date,Month:FULL_MONTHS[new Date(o.date).getMonth()],Year:new Date(o.date).getFullYear(),Channel:o.channel,Product_ID:p.id,Product:p.name,Qty_Requested:l.qty_requested,Qty_Delivered:l.qty_delivered,Notes:o.notes};}));
+
+  const C={
+    wrap:{fontFamily:"'Segoe UI',Arial,sans-serif",maxWidth:1200,margin:"0 auto",padding:"16px 12px",color:"#1a1a1a",fontSize:13},
+    hdr:{borderBottom:"2px solid #1a1a1a",paddingBottom:10,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"flex-end"},
+    tabs:{display:"flex",gap:3,marginBottom:16,flexWrap:"wrap"},
+    tab:a=>({padding:"7px 15px",border:"1px solid #ccc",background:a?"#1a1a1a":"#fff",color:a?"#fff":"#333",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:a?600:400}),
+    btn:(bg="#1a1a1a")=>({padding:"7px 16px",background:bg,color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:500}),
+    btnSm:(bg="#444")=>({padding:"3px 9px",background:bg,color:"#fff",border:"none",borderRadius:3,cursor:"pointer",fontSize:11}),
+    btnOut:{padding:"6px 12px",background:"#fff",color:"#1a1a1a",border:"1px solid #999",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:500},
+    btnGhost:{padding:"3px 8px",background:"transparent",color:"#666",border:"1px solid #ccc",borderRadius:3,cursor:"pointer",fontSize:11},
+    tbl:{width:"100%",borderCollapse:"collapse",fontSize:12},
+    th:{background:"#1a1a1a",color:"#fff",padding:"7px 9px",textAlign:"left",fontWeight:500,whiteSpace:"nowrap"},
+    td:{padding:"6px 9px",borderBottom:"1px solid #e8e8e8",verticalAlign:"middle"},
+    inp:w=>({padding:"4px 6px",border:"1px solid #ccc",borderRadius:3,fontSize:12,width:w||"100%",boxSizing:"border-box"}),
+    sel:{padding:"5px 7px",border:"1px solid #ccc",borderRadius:3,fontSize:12,background:"#fff"},
+    card:{background:"#f8f8f8",border:"1px solid #ddd",borderRadius:5,padding:"12px 14px",marginBottom:14},
+    kpi:{background:"#f8f8f8",border:"1px solid #ddd",borderRadius:5,padding:"12px 14px",textAlign:"center"},
+    kpiV:{fontSize:22,fontWeight:700,margin:"4px 0 2px"},
+    kpiL:{fontSize:11,color:"#666"},
+    grid3:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14},
+    grid4:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:14},
+    grid2:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14},
+    frow:{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"},
+    secTitle:{fontSize:14,fontWeight:600,marginBottom:10,borderBottom:"1px solid #ddd",paddingBottom:5},
+    alert:{background:"#fff3cd",border:"1px solid #ffc107",borderRadius:4,padding:"7px 11px",marginBottom:10,fontSize:12},
+    formBox:{background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,padding:14,marginBottom:14},
+    label:{display:"block",marginBottom:3,fontWeight:500,fontSize:12,color:"#444"},
+    row:{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"},
+    col:{flex:1,minWidth:140},
+    lineRow:{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"7px 10px",background:"#fff",border:"1px solid #e0e0e0",borderRadius:4},
+  };
+
+  const Filters = ({showExport,exportData,exportName}) => (
+    <div style={{...C.frow,justifyContent:"space-between"}}>
+      <div style={{...C.frow,marginBottom:0}}>
+        <select style={C.sel} value={fMonth} onChange={e=>setFMonth(Number(e.target.value))}>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+        <select style={C.sel} value={fYear} onChange={e=>setFYear(Number(e.target.value))}>{[2024,2025,2026].map(y=><option key={y}>{y}</option>)}</select>
+        <select style={C.sel} value={fChannel} onChange={e=>setFChannel(e.target.value)}><option>All</option>{CHANNELS.map(c=><option key={c}>{c}</option>)}</select>
+        <select style={C.sel} value={fProduct} onChange={e=>setFProduct(e.target.value)}><option value="All">All Products</option>{PRODUCTS.map(p=><option key={p.id} value={p.id}>[{p.id}] {p.name}</option>)}</select>
+        <span style={{fontSize:11,color:"#888"}}>{filtered.length} orders</span>
+      </div>
+      {showExport&&exportData&&<button style={C.btnOut} onClick={()=>exportCSV(exportData,exportName||"export.csv")}>Export CSV</button>}
+    </div>
+  );
+
+  return (
+    <div style={C.wrap}>
+      <div style={C.hdr}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700}}>Demand Planner</div>
+          <div style={{fontSize:11,color:"#666",marginTop:2}}>Meat Factory — Order & Delivery Management System</div>
+        </div>
+        <div style={{fontSize:11,color:"#888",textAlign:"right"}}>
+          <div>{pending.length} pending · {orders.length} total orders</div>
+          <div style={{marginTop:2}}>{MONTHS[fMonth]} {fYear}</div>
+        </div>
+      </div>
+
+      <div style={C.tabs}>
+        {TABS.map((t,i)=>(
+          <button key={i} style={C.tab(tab===i)} onClick={()=>setTab(i)}>
+            {t}{i===2&&pending.length>0?<span style={{marginLeft:5,background:"#e74c3c",color:"#fff",borderRadius:8,padding:"0 5px",fontSize:10}}>{pending.length}</span>:null}
+          </button>
+        ))}
+      </div>
+
+      {/* ORDERS */}
+      {tab===0&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={C.secTitle}>Order Log</div>
+            <div style={{display:"flex",gap:8}}>
+              <button style={C.btnOut} onClick={()=>exportCSV(ordersExport,`orders_${MONTHS[fMonth]}_${fYear}.csv`)}>Export CSV</button>
+              <button style={C.btn()} onClick={()=>{setForm(emptyOrder());setEditingId(null);setShowForm(!showForm);}}>
+                {showForm?"Cancel":"+ New Order"}
+              </button>
+            </div>
+          </div>
+
+          {showForm&&(
+            <div style={C.formBox}>
+              <div style={C.row}>
+                <div style={C.col}><label style={C.label}>Date</label><input type="date" style={C.inp()} value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></div>
+                <div style={C.col}><label style={C.label}>Channel</label>
+                  <select style={{...C.sel,width:"100%"}} value={form.channel} onChange={e=>setForm({...form,channel:e.target.value})}>
+                    {CHANNELS.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={C.col}><label style={C.label}>Status</label>
+                  <select style={{...C.sel,width:"100%"}} value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                    {STATUSES.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div style={{flex:2,minWidth:180}}><label style={C.label}>Notes</label><input style={C.inp()} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Optional..."/></div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <label style={{...C.label,marginBottom:6}}>Products</label>
+                <div style={{background:"#fff",border:"1px solid #ddd",borderRadius:4,padding:"8px 10px"}}>
+                  <div style={{display:"flex",gap:8,marginBottom:6,paddingBottom:5,borderBottom:"1px solid #eee"}}>
+                    <div style={{flex:3,fontSize:11,fontWeight:600,color:"#666"}}>Product</div>
+                    <div style={{width:80,fontSize:11,fontWeight:600,color:"#666"}}>Requested</div>
+                    <div style={{width:24}}/>
+                  </div>
+                  {form.lines.map((l,i)=>(
+                    <div key={i} style={C.lineRow}>
+                      <select style={{...C.sel,flex:3}} value={l.product_id} onChange={e=>setLine(i,"product_id",e.target.value)}>
+                        {PRODUCTS.map(p=><option key={p.id} value={p.id}>[{p.id}] {p.name} — {p.name_ar}</option>)}
+                      </select>
+                      <input type="number" style={C.inp(80)} placeholder="Qty" value={l.qty_requested} onChange={e=>setLine(i,"qty_requested",e.target.value)}/>
+                      {form.lines.length>1&&<button style={{...C.btnSm("#e74c3c"),padding:"2px 7px"}} onClick={()=>removeLine(i)}>✕</button>}
+                    </div>
+                  ))}
+                  <button style={{...C.btnGhost,marginTop:4}} onClick={addLine}>+ Add product</button>
+                </div>
+              </div>
+              <button style={C.btn()} onClick={saveOrder}>{editingId?"Save Changes":"Add Order"}</button>
+            </div>
+          )}
+
+          <Filters showExport exportData={ordersExport} exportName={`orders_${MONTHS[fMonth]}_${fYear}.csv`}/>
+
+          {filtered.length===0?(
+            <div style={{...C.card,textAlign:"center",color:"#999",padding:28}}>No orders found for this period</div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={C.tbl}>
+                <thead><tr>{["Order ID","Date","Channel","Products","Status","Notes",""].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {filtered.map((o,i)=>{
+                    const expanded=expandedOrders[o.id];
+                    const totalReq=o.lines.reduce((a,l)=>a+(Number(l.qty_requested)||0),0);
+                    const totalDel=o.lines.reduce((a,l)=>a+(Number(l.qty_delivered)||0),0);
+                    return(<React.Fragment key={o.id}>
+                      <tr style={{background:i%2===0?"#fff":"#fafafa"}}>
+                        <td style={{...C.td,fontWeight:600,color:"#555",whiteSpace:"nowrap"}}>{o.id}</td>
+                        <td style={{...C.td,whiteSpace:"nowrap"}}>{o.date}</td>
+                        <td style={C.td}>{o.channel}</td>
+                        <td style={C.td}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontSize:11,color:"#555"}}>{o.lines.length} product{o.lines.length>1?"s":""} · {totalReq.toLocaleString()} requested · {totalDel.toLocaleString()} delivered</span>
+                            <button style={C.btnGhost} onClick={()=>toggleExpand(o.id)}>{expanded?"▲ Hide":"▼ Show"}</button>
+                          </div>
+                        </td>
+                        <td style={C.td}>
+                          <select style={{...C.sel,fontSize:11}} value={o.status} onChange={e=>updateOrderField(o.id,"status",e.target.value)}>
+                            {STATUSES.map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </td>
+                        <td style={{...C.td,fontSize:11,color:"#777"}}>{o.notes}</td>
+                        <td style={C.td}><button style={C.btnSm()} onClick={()=>editOrder(o)}>Edit</button></td>
+                      </tr>
+                      {expanded&&(
+                        <tr key={o.id+"_exp"} style={{background:"#f0f4ff"}}>
+                          <td colSpan={7} style={{padding:"0 0 8px 32px"}}>
+                            <table style={{...C.tbl,marginTop:6}}>
+                              <thead><tr>{["ID","Product","Weight","Requested","Available","Delivered","Deficit"].map(h=><th key={h} style={{...C.th,background:"#444",padding:"5px 8px",fontSize:11}}>{h}</th>)}</tr></thead>
+                              <tbody>
+                                {o.lines.map((l,li)=>{
+                                  const p=getProd(l.product_id);
+                                  const deficit=Math.max(0,(Number(l.qty_requested)||0)-(Number(l.qty_delivered)||0));
+                                  return(<tr key={li} style={{background:li%2===0?"#fff":"#f8f8f8"}}>
+                                    <td style={{...C.td,fontWeight:600,color:"#555",fontSize:11}}>{p.id}</td>
+                                    <td style={{...C.td,fontSize:11}}><div style={{fontWeight:500}}>{p.name}</div><div style={{fontSize:10,color:"#999"}}>{p.name_ar}</div></td>
+                                    <td style={{...C.td,color:"#888",fontSize:11}}>{p.weight}g</td>
+                                    <td style={{...C.td,fontWeight:600,fontSize:11}}>{l.qty_requested}</td>
+                                    <td style={C.td}><input type="number" style={C.inp(60)} value={l.qty_available} onChange={e=>updateLineField(o.id,li,"qty_available",e.target.value)}/></td>
+                                    <td style={C.td}><input type="number" style={C.inp(60)} value={l.qty_delivered} onChange={e=>updateLineField(o.id,li,"qty_delivered",e.target.value)}/></td>
+                                    <td style={{...C.td,color:deficit>0?"#c0392b":"#27ae60",fontWeight:700,fontSize:11}}>{deficit>0?deficit:"—"}</td>
+                                  </tr>);
+                                })}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PRODUCTION BOARD */}
+      {tab===1&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={C.secTitle}>Production Board — {MONTHS[fMonth]} {fYear}</div>
+            <button style={C.btnOut} onClick={()=>exportCSV(prodExport,`production_${MONTHS[fMonth]}_${fYear}.csv`)}>Export CSV</button>
+          </div>
+          <Filters/>
+          <div style={C.grid3}>
+            <div style={C.kpi}><div style={C.kpiL}>Total Orders</div><div style={C.kpiV}>{filtered.length}</div></div>
+            <div style={C.kpi}><div style={C.kpiL}>Total Requested</div><div style={C.kpiV}>{totReq.toLocaleString()}</div></div>
+            <div style={C.kpi}><div style={C.kpiL}>Total Delivered</div><div style={C.kpiV}>{totDel.toLocaleString()}</div></div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={C.tbl}>
+              <thead><tr>{["ID","Product","Weight","Requested","Available","Delivered","Deficit","Coverage"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {PRODUCTS.map((p,i)=>{
+                  const d=prodSummary[p.id]||{requested:0,available:0,delivered:0};
+                  if(!d.requested) return null;
+                  const deficit=d.requested-d.delivered;
+                  const cov=Math.round(d.delivered/d.requested*100);
+                  return(<tr key={p.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                    <td style={{...C.td,fontWeight:600,color:"#555"}}>{p.id}</td>
+                    <td style={C.td}><div style={{fontWeight:500}}>{p.name}</div><div style={{fontSize:10,color:"#999"}}>{p.name_ar}</div></td>
+                    <td style={{...C.td,color:"#888"}}>{p.weight}g</td>
+                    <td style={{...C.td,fontWeight:600}}>{d.requested.toLocaleString()}</td>
+                    <td style={C.td}>{d.available.toLocaleString()}</td>
+                    <td style={C.td}>{d.delivered.toLocaleString()}</td>
+                    <td style={{...C.td,color:deficit>0?"#c0392b":"#27ae60",fontWeight:700}}>{deficit>0?deficit.toLocaleString():"—"}</td>
+                    <td style={{...C.td,minWidth:120}}><MiniBar value={d.delivered} max={d.requested} color={cov>=90?"#27ae60":cov>=70?"#f39c12":"#e74c3c"}/></td>
+                  </tr>);
+                }).filter(Boolean)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* DELIVERY TRACKER */}
+      {tab===2&&(
+        <div>
+          <div style={C.secTitle}>Delivery Tracker — Pending & Deficit</div>
+          {pending.length>0&&<div style={C.alert}>{pending.length} order(s) with pending delivery or deficit</div>}
+          {pending.length===0?(
+            <div style={{...C.card,textAlign:"center",color:"#27ae60",padding:28,fontWeight:600}}>All orders fully delivered</div>
+          ):pending.map((o,i)=>(
+            <div key={o.id} style={{...C.card,marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <span style={{fontWeight:700,marginRight:10}}>{o.id}</span>
+                  <span style={{color:"#555",marginRight:10}}>{o.date}</span>
+                  <span style={{fontWeight:600}}>{o.channel}</span>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <select style={{...C.sel,fontSize:11}} value={o.status} onChange={e=>updateOrderField(o.id,"status",e.target.value)}>
+                    {STATUSES.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                  <button style={C.btnSm("#27ae60")} onClick={()=>updateOrderField(o.id,"status","Delivered")}>Mark All Delivered</button>
+                </div>
+              </div>
+              <table style={C.tbl}>
+                <thead><tr>{["ID","Product","Requested","Delivered","Deficit"].map(h=><th key={h} style={{...C.th,background:"#555",padding:"5px 8px",fontSize:11}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {o.lines.map((l,li)=>{
+                    const p=getProd(l.product_id);
+                    const deficit=Math.max(0,(Number(l.qty_requested)||0)-(Number(l.qty_delivered)||0));
+                    return(<tr key={li} style={{background:li%2===0?"#fff":"#fafafa"}}>
+                      <td style={{...C.td,fontWeight:600,color:"#555",fontSize:11}}>{p.id}</td>
+                      <td style={{...C.td,fontSize:11}}><div style={{fontWeight:500}}>{p.name}</div><div style={{fontSize:10,color:"#999"}}>{p.name_ar}</div></td>
+                      <td style={{...C.td,fontWeight:600,fontSize:11}}>{l.qty_requested}</td>
+                      <td style={C.td}><input type="number" style={C.inp(70)} value={l.qty_delivered} onChange={e=>updateLineField(o.id,li,"qty_delivered",e.target.value)}/></td>
+                      <td style={{...C.td,color:deficit>0?"#c0392b":"#27ae60",fontWeight:700,fontSize:11}}>{deficit>0?deficit:"—"}</td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* HISTORY */}
+      {tab===3&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={C.secTitle}>Historical Log — All Delivered Orders</div>
+            <button style={C.btnOut} onClick={()=>exportCSV(histExport,`history_${fYear}.csv`)}>Export CSV</button>
+          </div>
+          <Filters/>
+          {delivered.length===0?(
+            <div style={{...C.card,textAlign:"center",color:"#999",padding:28}}>No delivered orders yet</div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={C.tbl}>
+                <thead><tr>{["Order ID","Date","Month","Channel","ID","Product","Weight","Requested","Delivered","Notes"].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {delivered.flatMap((o,oi)=>o.lines.map((l,li)=>{
+                    const p=getProd(l.product_id);
+                    return(<tr key={o.id+li} style={{background:(oi+li)%2===0?"#fff":"#fafafa"}}>
+                      <td style={{...C.td,fontWeight:600,color:"#555"}}>{o.id}</td>
+                      <td style={{...C.td,whiteSpace:"nowrap"}}>{o.date}</td>
+                      <td style={C.td}>{MONTHS[new Date(o.date).getMonth()]} {new Date(o.date).getFullYear()}</td>
+                      <td style={C.td}>{o.channel}</td>
+                      <td style={{...C.td,fontWeight:600,color:"#555"}}>{p.id}</td>
+                      <td style={C.td}><div style={{fontWeight:500}}>{p.name}</div><div style={{fontSize:10,color:"#999"}}>{p.name_ar}</div></td>
+                      <td style={{...C.td,color:"#888"}}>{p.weight}g</td>
+                      <td style={C.td}>{l.qty_requested}</td>
+                      <td style={{...C.td,fontWeight:600,color:"#27ae60"}}>{l.qty_delivered}</td>
+                      <td style={{...C.td,fontSize:11,color:"#777"}}>{o.notes}</td>
+                    </tr>);
+                  }))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DASHBOARD */}
+      {tab===4&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={C.secTitle}>Dashboard — {MONTHS[fMonth]} {fYear}</div>
+            <button style={C.btnOut} onClick={()=>exportCSV(ordersExport,`dashboard_${MONTHS[fMonth]}_${fYear}.csv`)}>Export All Data</button>
+          </div>
+          <Filters/>
+          <div style={C.grid4}>
+            <div style={C.kpi}><div style={C.kpiL}>Total Orders</div><div style={C.kpiV}>{filtered.length}</div></div>
+            <div style={C.kpi}><div style={C.kpiL}>Units Requested</div><div style={C.kpiV}>{totReq.toLocaleString()}</div></div>
+            <div style={C.kpi}><div style={C.kpiL}>Units Delivered</div><div style={C.kpiV}>{totDel.toLocaleString()}</div></div>
+            <div style={C.kpi}><div style={C.kpiL}>Coverage Rate</div><div style={{...C.kpiV,color:totCov>=90?"#27ae60":totCov>=70?"#f39c12":"#e74c3c"}}>{totCov}%</div></div>
+          </div>
+          <div style={C.grid2}>
+            <div style={C.card}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:10}}>Units Requested by Channel</div>
+              {channelData.length===0?<div style={{color:"#999",fontSize:12,textAlign:"center",padding:20}}>No data</div>:<BarChart data={channelData} color="#1a1a1a"/>}
+            </div>
+            <div style={C.card}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:10}}>Top Products by Demand</div>
+              {topProducts.length===0?<div style={{color:"#999",fontSize:12,textAlign:"center",padding:20}}>No data</div>:<BarChart data={topProducts} color="#555"/>}
+            </div>
+          </div>
+          <div style={C.card}>
+            <div style={{fontWeight:600,fontSize:13,marginBottom:10}}>Monthly Delivery Trend — {fYear}</div>
+            {monthlyTrend.every(d=>d.value===0)?<div style={{color:"#999",fontSize:12,textAlign:"center",padding:20}}>No delivered orders yet</div>:<BarChart data={monthlyTrend} color="#333" height={100}/>}
+          </div>
+          <div style={C.grid2}>
+            <div style={C.card}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>Channel Performance</div>
+              <table style={C.tbl}>
+                <thead><tr>{["Channel","Orders","Requested","Delivered","Coverage"].map(h=><th key={h} style={{...C.th,fontSize:11,padding:"6px 8px"}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {channelData.map((c,i)=>{
+                    const cov=c.value?Math.round(c.delivered/c.value*100):0;
+                    return(<tr key={c.label} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                      <td style={{...C.td,fontSize:12,fontWeight:500}}>{c.label}</td>
+                      <td style={{...C.td,fontSize:12}}>{c.count}</td>
+                      <td style={{...C.td,fontSize:12}}>{c.value.toLocaleString()}</td>
+                      <td style={{...C.td,fontSize:12}}>{c.delivered.toLocaleString()}</td>
+                      <td style={{...C.td,fontSize:12,fontWeight:700,color:cov>=90?"#27ae60":cov>=70?"#f39c12":"#e74c3c"}}>{cov}%</td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={C.card}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>Forecast — Next Month</div>
+              <div style={{fontSize:11,color:"#888",marginBottom:8}}>Moving average of delivered quantities (+5% buffer)</div>
+              <table style={C.tbl}>
+                <thead><tr>{["ID","Product","Avg/Month","Forecast"].map(h=><th key={h} style={{...C.th,fontSize:11,padding:"6px 8px"}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {PRODUCTS.filter(p=>forecast[p.id]>0).map((p,i)=>(
+                    <tr key={p.id} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                      <td style={{...C.td,fontSize:11,fontWeight:600,color:"#555"}}>{p.id}</td>
+                      <td style={{...C.td,fontSize:11}}>{p.name}<br/><span style={{fontSize:10,color:"#999"}}>{p.name_ar}</span></td>
+                      <td style={{...C.td,fontSize:11}}>{forecast[p.id].toLocaleString()}</td>
+                      <td style={{...C.td,fontSize:11,fontWeight:700,color:"#1a56db"}}>{Math.round(forecast[p.id]*1.05).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {PRODUCTS.filter(p=>forecast[p.id]>0).length===0&&<tr><td colSpan={4} style={{...C.td,color:"#999",textAlign:"center",padding:16}}>No delivered data yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
